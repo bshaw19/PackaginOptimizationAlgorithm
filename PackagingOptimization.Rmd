@@ -1,0 +1,200 @@
+---
+title: "TeeShirtProblem"
+author: "Brandon Shaw"
+date: "May 21, 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Data Setup for Orders 2 and 3
+```{r}
+#Setting up Order2 DF
+Color <- c("Red", "Green", "Yellow", "Blue")
+S <- c(895,1244,213,186)
+M <- c(889,1217,288,1001)
+L <- c(1311,1076,754,796)
+XL <- c(645,454,1138,640)
+XL2 <- c(353,379,641,353)
+XL3 <- c(288,0,1316,1321)
+Order2 <- data.frame(S,M,L,XL,XL2,XL3,row.names = Color)
+
+#Setting up Order3 DF
+Color <- c("Red", "Green", "Yellow", "Blue")
+S <- c(1582,1467,2441,1781)
+M <- c(2556,18019,539,1392)
+L <- c(2692,20148,2939,2346)
+XL <- c(3252,19101,2558,3147)
+XL2 <- c(3835,17168,3900,4938)
+XL3 <- c(5098,10674,4440,12399)
+Order3 <- data.frame(S,M,L,XL,XL2,XL3,row.names = Color)
+
+Order2
+Order3
+```
+
+##Order Sorting Function
+```{r}
+library(plyr)
+
+OrderSorter <- function(OrderDf, csvName="Order2"){
+  #Expected Boxes for live progress reporting
+  expected_boxes <- floor(sum(OrderDf) / 24)
+  #Regenerating frequency counts of each column and row sum
+  size_counts <- colSums(OrderDf)
+  color_counts <- rowSums(OrderDf)
+  names(size_counts) <- NULL
+  names(color_counts) <- NULL
+  
+  #Initializing first box number to zero
+  box_index=1
+  #While there are no sizes with 0 left, no colors with 0 left, and at least 24 shirts left
+  while(length(size_counts[size_counts==0])==0 && length(color_counts[color_counts==0])==0 && sum(size_counts)>=24){
+    #Intializing an empty list for box output
+    box_items <- c()
+    #Setting up flags for colors and sizes
+    flag_df <- data.frame(c(0),c(0),c(0),c(0),c(1),c(1),c(1),c(1),c(1),c(1))
+    colnames(flag_df) <- c("Red","Green", "Yellow", "Blue", "S", "M", "L", "XL", "XL2", "XL3")
+    #Initializing shirt counter at 0
+    SC <- 0
+    #Determining coordinates of maximum quantities by column
+    size_max_freqs <- cbind(1:nrow(t.data.frame(OrderDf)), max.col(t.data.frame(OrderDf), 'first'))
+    #Decrementing largest quantity by 1 by size column and appending shirt details to output box list
+    for(i in 1:6){
+        #Decrement the max quantity in the size column by 1
+        OrderDf[size_max_freqs[i,2],size_max_freqs[i,1]] <- (OrderDf[size_max_freqs[i,2],size_max_freqs[i,1]] - 1)
+        #Add color and size of max quantity to box output list
+        box_items <- c(box_items,paste(rownames(OrderDf)[size_max_freqs[i,2]],colnames(OrderDf)[i],sep="_"))
+        #Increase Shirt Counter
+        SC <- SC + 1
+        #Set color flag to 1
+        flag_df[,size_max_freqs[i,2]] <- 1
+    }
+    #Determining coordinates of maximum quantities by row (color group)
+    color_max_freqs <- cbind(1:nrow(OrderDf), max.col(OrderDf, 'first'))
+    for(i in 1:4){
+      #If the flag is equal to 0
+      if(flag_df[1,i]==0){
+        #Decrement the max color group quantity by 1
+        OrderDf[color_max_freqs[i,1],color_max_freqs[i,2]] <- (OrderDf[color_max_freqs[i,1],color_max_freqs[i,2]] - 1)
+        #Append color and size to box items
+        box_items <- c(box_items,paste(rownames(OrderDf)[i],colnames(OrderDf)[color_max_freqs[i,2]],sep="_"))
+        #Increase shirt counter by 1
+        SC <- SC + 1
+        #Set that flag for color to 1
+        flag_df[,i] <- 1
+        #Increase size counter by 1
+        flag_df[,(size_max_freqs[i,2]+4)] <- flag_df[,(size_max_freqs[i,2]+4)] + 1
+      }
+    }
+    #Transposing size counters
+    size_counters <- flag_df[1,5:10]
+    possible_categories <- data.frame(t.data.frame(size_counters))
+    colnames(possible_categories) <- "size_totals"
+    #While there are less than 24 shirts specified
+    while(SC<24){
+      #Selecting all columns with size counters less than 5
+      possible_categories <- possible_categories[possible_categories$size_totals<=4,, drop = FALSE]
+      possible_sizes <- OrderDf[,rownames(possible_categories), drop = FALSE]
+      #Selecting the max value out of entire df
+      max_coords <- which(possible_sizes == max(possible_sizes), arr.ind = TRUE)
+      #Selecting only the first instance in the case of a tie
+      max_coords <- max_coords[1,]
+      #Decrementing the max in entire dataframe by matching column and rownames of filtered order df
+      Color_select <- rownames(possible_sizes)[max_coords[1]]
+      Size_select <- colnames(possible_sizes)[max_coords[2]]
+      OrderDf[Color_select,Size_select] <- (OrderDf[Color_select,Size_select] - 1)
+      #Decrementing the <24 while loop shirt df to match order2
+      possible_sizes[max_coords[1],max_coords[2]] <- (possible_sizes[max_coords[1],max_coords[2]] - 1)
+      #Adding shirt to box output list
+      box_items <- c(box_items,paste(Color_select,Size_select,sep="_"))  
+      #Adding 1 to the size counter
+      possible_categories[Size_select,1] <- (possible_categories[Size_select,1] + 1)
+      
+      SC <- SC + 1
+    }
+    #Regenerating frequency counts of each column and row sum
+    size_counts <- colSums(OrderDf)
+    color_counts <- rowSums(OrderDf)
+    names(size_counts) <- NULL
+    names(color_counts) <- NULL
+    #Saving box values to csv file by full joining each iteration and exporting as csv after while loop runs through
+    if(box_index==1){
+      box_df <- data.frame(box_index)
+      colnames(box_df) <- "Box"
+      box_itemsdf <- data.frame(t.data.frame(table(box_items)))
+      box_df <- cbind(box_df,box_itemsdf)
+    }
+    else{
+      new_df <- data.frame(box_index)
+      colnames(new_df) <- "Box"
+      new_itemsdf <- data.frame(t.data.frame(table(box_items)))
+      new_df <- cbind(new_df,new_itemsdf)
+      
+      box_df <- join(box_df, new_df, by = "Box", type = "full")
+    }
+  
+  #Print progress percentage every 10 iterations
+    if(box_index%%10==0){
+      #Clearing previous Output
+      cat("\014")  
+      percent_complete <- round(box_index/expected_boxes,4)*100
+      print(paste(csvName, " ",percent_complete, "% Completed", sep=""))
+    }
+    box_index <- box_index + 1
+    
+  }
+  box_df[is.na(box_df)] <- 0
+  write.csv(box_df, file = csvName)
+  return(box_df)
+  
+} 
+```
+
+**The above functions takes in a 4x6 dataset of t shirts as provided, as well as a name for the saved CSV, and performs the box sorts to create the csv with a minimum of 1 of each size, 1 of each color, and 24 per box. The function returns one dataframe containing all shirt quantities indexed by box number, and saves this dataframe to a CSV file as specified in the function name. It can now be used to easily perform sorts on any 4x6 order and save to CSV in the working directory as shown below. I included a progress monitor in the function so progress can be tracked during the sorting process of large orders.
+
+##Sorting of Orders
+```{r, echo=T, results='hide'}
+Order2df <- OrderSorter(Order2, csvName="Order2.csv")
+Order3df <- OrderSorter(Order3, csvName="Order3.csv")
+```
+
+##Testing and Data Analysis
+
+```{r}
+zeroes2 <- rowSums(Order2df == 0)
+zeroes3 <- rowSums(Order3df == 0)
+
+par(mfrow=c(1,2))
+ts.plot(zeroes2, main = "Order 2 Number of Unincluded Styles", xlab = "Box", ylab = "Number of Styles Not included in Box")
+ts.plot(zeroes3, main = "Order 3 Number of Unincluded Styles", xlab = "Box", ylab = "Number of Styles Not included in Box")
+
+```
+
+We can see in the above plots that the algorithm gradually increases the number of varieties in each box as the items are sorted into boxes. This is because it targets the varieties that have more quantities than others first during the decrementing process.
+
+##Testing range of quantities from 0 to 5 per box
+```{r}
+summary(Order2df)
+summary(Order3df)
+```
+
+The summaries confirm that the algorithm worked correctly in restricting the number of shirts per size/color style to a range of 0 to 5 per box. 
+
+##Testing total number of shirts per box
+```{r}
+table(rowSums(Order2df[,2:24]))
+table(rowSums(Order3df[,2:25]))
+```
+
+The above analysis confirms that all boxes contain 24 shirts after sorting. 
+
+
+##Confirming CSV's were created
+```{r}
+list.files()
+```
+
+
